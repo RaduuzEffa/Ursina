@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ursina-v2';
+const CACHE_NAME = 'ursina-v3';
 const urlsToCache = [
   './',
   './index.html',
@@ -6,6 +6,8 @@ const urlsToCache = [
   './app.js',
   './manifest.json',
   './UrsinaLogo.png',
+  './icon-512.png',
+  './apple-touch-icon.png',
   'https://unpkg.com/vue@3/dist/vue.global.js',
   'https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js',
