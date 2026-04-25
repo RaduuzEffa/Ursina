@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ursina | Chytré obohacování dat</title>
+  <meta name="description" content="Nástroj pro analýzu dokumentů (Excel, Word, PDF), extrakci entit a obohacení o kontaktní údaje ze sekundárního zdroje.">
+  
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0b0f19">
+  <link rel="apple-touch-icon" href="UrsinaLogo.png">
+  <link rel="icon" href="UrsinaLogo.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="index.css">
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.5.1/mammoth.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js/dist/fuse.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <div id="app" v-cloak>
+    <div class="app-container">
+      
+      <header class="app-header">
+        <div class="logo">
+          <img src="UrsinaLogo.png" alt="Ursina Logo" style="width: 48px; height: 48px; object-fit: contain; border-radius: 8px;">
+          <h1>Ursina</h1>
+        </div>
+        <div>
+          <button class="btn" @click="resetApp" v-if="primaryFile || secondaryFile">
+            <i data-lucide="rotate-ccw"></i> Nový proces
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Area: Primary Source -->
+      <main class="main-area fade-in">
+        <div class="glass glass-panel">
+          <h2>1. Hledaný dokument (Ten, co chceme obohatit)</h2>
+          <p>Nahrajte dokument, ve kterém chcete dohledat kontakty (.xlsx, .csv, .pdf, .docx)</p>
+          
+          <div 
+            class="dropzone" 
+            :class="{ dragover: isDraggingPrimary }"
+            @dragover.prevent="isDraggingPrimary = true"
+            @dragleave.prevent="isDraggingPrimary = false"
+            @drop.prevent="handlePrimaryDrop"
+            @click="triggerFileInput('primaryInput')"
+            v-if="!primaryFile"
+          >
+            <i data-lucide="upload-cloud" class="dropzone-icon"></i>
+            <h3>Přetáhněte soubor sem</h3>
+            <p>Nebo klikněte pro výběr souboru</p>
+            <input type="file" id="primaryInput" ref="primaryInput" class="hidden" accept=".xlsx,.csv,.pdf,.docx" @change="handlePrimarySelect" style="display: none;">
+          </div>
+
+          <div v-else class="file-item fade-in">
+            <i data-lucide="file-text" class="file-icon"></i>
+            <div class="file-info">
+              <div class="file-name">{{ primaryFile.name }}</div>
+              <div class="file-size">Načteno ke zpracování</div>
+            </div>
+            <button class="btn" @click.stop="removePrimaryFile" style="padding: 6px; background: transparent; border: none; color: var(--danger);">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+
+          <!-- Mapping pro tabulky -->
+          <div v-if="primaryColumns.length > 0" class="mapping-section fade-in" style="margin-top: 1.5rem;">
+            <div class="form-group">
+              <label class="form-label" for="primaryKey">Vyberte sloupec, podle kterého budeme hledat (např. Jméno)</label>
+              <select id="primaryKey" v-model="selectedPrimaryKey" class="form-control">
+                <option value="" disabled>Vyberte sloupec...</option>
+                <option v-for="col in primaryColumns" :key="col" :value="col">{{ col }}</option>
+              </select>
+            </div>
+          </div>
+          
+          <div v-if="primaryEntities.length > 0" class="mapping-section fade-in" style="margin-top: 1.5rem;">
+            <div class="badge badge-success">
+              <i data-lucide="check-circle" style="width: 14px; height: 14px; margin-right: 4px;"></i>
+              Extrahováno {{ primaryEntities.length }} jmen z dokumentu.
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Panel -->
+        <div class="glass glass-panel fade-in" style="margin-top: 2rem;">
+          <h2>3. Prohledat a spárovat</h2>
+          <p>Aplikace projde dokument a pokusí se najít kontakty ze zdroje.</p>
+          
+          <div v-if="!validationStatus.ok" class="badge badge-warning" style="margin-top: 1rem; display: block; padding: 10px; line-height: 1.4;">
+             <i data-lucide="alert-circle" style="vertical-align: sub; margin-right: 6px; width: 16px; height: 16px;"></i>
+             {{ validationStatus.msg }}
+          </div>
+
+          <button class="btn btn-primary" style="width: 100%; margin-top: 1rem; padding: 14px; font-size: 1.1rem;" @click="runAnalysis" :disabled="isProcessing || !validationStatus.ok">
+            <span v-if="!isProcessing"><i data-lucide="zap"></i> Spustit analýzu a spárovat</span>
+            <span v-else style="display: flex; align-items: center; gap: 8px;"><div class="spinner"></div> Zpracovávám...</span>
+          </button>
+
+          <div v-if="progress > 0" class="progress-container fade-in">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: progress + '%' }"></div>
+            </div>
+            <div class="progress-status">
+              <span>{{ progressStatus }}</span>
+              <span>{{ progress }}%</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Results Panel -->
+        <div class="glass glass-panel fade-in" style="margin-top: 2rem;" v-if="results.length > 0">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2>Výsledek</h2>
+            <button class="btn btn-success" @click="saveResults" style="background: var(--success); color: #fff; border: none; font-weight: bold;">
+              <i data-lucide="download"></i> Stáhnout a otevřít excel
+            </button>
+          </div>
+          
+          <div class="results-preview" style="max-height: 500px;">
+            <table class="results-table">
+              <thead>
+                <tr>
+                  <th>Stav</th>
+                  <th v-for="hdr in resultHeaders" :key="hdr">{{ hdr }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in results.slice(0, 50)" :key="idx">
+                  <td>
+                    <span v-if="row.__MATCHED__" class="badge badge-success">Spárováno</span>
+                    <span v-else class="badge badge-warning">Nenalezeno</span>
+                  </td>
+                  <td v-for="hdr in resultHeaders" :key="hdr">{{ row[hdr] || '' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p style="margin-top: 1rem; font-size: 0.85rem;" v-if="results.length > 50">
+            Zobrazeno prvních 50 záznamů z celkových {{ results.length }}. Všechna data budou stažena v Excelu.
+          </p>
+        </div>
+
+      </main>
+
+      <!-- Sidebar: Secondary Source -->
+      <aside class="sidebar fade-in">
+        <div class="glass glass-panel">
+          <h2>2. Databáze (Telefonní seznam)</h2>
+          <p>Odkud se mají čerpat chybějící kontakty</p>
+
+          <div class="tabs" style="display: flex; gap: 10px; margin-top: 1rem; margin-bottom: 1rem;">
+            <button class="btn" :class="{'btn-primary': sourceType === 'file'}" @click="sourceType = 'file'" style="flex: 1; padding: 10px 5px; font-size: 0.85rem;">Nahrát celý seznam</button>
+            <button class="btn" :class="{'btn-primary': sourceType === 'text'}" @click="sourceType = 'text'" style="flex: 1; padding: 10px 5px; font-size: 0.85rem;">Vložit text</button>
+            <button class="btn" :class="{'btn-primary': sourceType === 'search'}" @click="sourceType = 'search'" style="flex: 1; padding: 10px 5px; font-size: 0.85rem;">Auto-hledání z URL</button>
+          </div>
+
+          <div v-if="sourceType === 'file'" class="fade-in">
+            <div 
+              class="dropzone" 
+              :class="{ dragover: isDraggingSecondary }"
+              style="padding: 2rem 1rem;"
+              @dragover.prevent="isDraggingSecondary = true"
+              @dragleave.prevent="isDraggingSecondary = false"
+              @drop.prevent="handleSecondaryDrop"
+              @click="triggerFileInput('secondaryInput')"
+              v-if="!secondaryFile"
+            >
+              <i data-lucide="database" class="dropzone-icon" style="width: 32px; height: 32px;"></i>
+              <h4 style="margin: 0;">Základna dat</h4>
+              <p style="font-size: 0.8rem; margin: 0;">.xlsx, .csv, .pdf, .docx, .txt</p>
+              <input type="file" id="secondaryInput" ref="secondaryInput" class="hidden" accept=".xlsx,.csv,.pdf,.docx,.txt" @change="handleSecondarySelect" style="display: none;">
+            </div>
+
+            <div v-else class="file-item fade-in" style="flex-direction: column; align-items: stretch;">
+              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                <i data-lucide="file-spreadsheet" class="file-icon"></i>
+                <div class="file-info">
+                  <div class="file-name">{{ secondaryFile.name }}</div>
+                </div>
+                <button class="btn" @click.stop="removeSecondaryFile" style="padding: 6px; background: transparent; border: none; color: var(--danger);">
+                  <i data-lucide="x"></i>
+                </button>
+              </div>
+
+              <!-- Nastavení extrakce ze strukturovaného excelu -->
+              <div v-if="secondaryColumns.length > 0">
+                <div class="form-group" style="margin-bottom: 0.8rem;">
+                  <label class="form-label">Sloupec k porovnání (Jméno)</label>
+                  <select v-model="secondaryKey" class="form-control">
+                    <option v-for="col in secondaryColumns" :key="col" :value="col">{{ col }}</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Které sloupce chcete přidat do prvního dokumentu?</label>
+                  <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px; max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px;">
+                     <label v-for="col in secondaryColumns" :key="'col_'+col" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem;">
+                        <input type="checkbox" :value="col" v-model="secondarySelectedExtractCols">
+                        {{ col }}
+                     </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Info pro nestrukturovaný text (Word, PDF, TXT) -->
+              <div v-if="secondaryUnstructuredText" style="margin-top: 1rem;">
+                <div class="badge badge-success" style="display: block; padding: 10px; line-height: 1.4;">
+                  <i data-lucide="check-circle" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: sub;"></i>
+                  Soubor přečten. Vyberte, co se má automaticky vydolovat:
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="sourceType === 'text'" class="fade-in">
+            <div class="form-group">
+              <label class="form-label" for="manualText">Vložit zkopírovaný text</label>
+              <textarea id="manualText" v-model="secondaryUnstructuredText" class="form-control" rows="8" placeholder="Pokud vám auto-hledání nefunguje, otevřete si firemní seznam, zkopírujte celou stránku (Ctrl+A, Ctrl+C) a vložte ji sem (Ctrl+V)..."></textarea>
+            </div>
+            <div v-if="secondaryUnstructuredText.length > 0" class="badge badge-success" style="margin-top: 1rem; display: block;">
+              <i data-lucide="check-circle" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;"></i>
+              Text vložen. Aplikace jej prohledá.
+            </div>
+          </div>
+
+          <div v-if="sourceType === 'search'" class="fade-in">
+            <div class="form-group">
+              <label class="form-label" for="searchUrl">Vyhledávací URL na internetu (API/Web)</label>
+              <input type="url" id="searchUrl" v-model="searchUrl" class="form-control" placeholder="https://api.databaze.cz/hledat?jmeno={NAME}">
+              <p style="font-size: 0.8rem; margin-top: 8px; color: var(--text-muted);">
+                Zadejte bezpečnou URL adresu na internetu, kam se posílá hledání. Místo jména vložte značku <strong>{NAME}</strong>.<br><br>Aplikace se napojí přímo z vašeho prohlížeče, za značku dosadí hledané jméno a z výsledku vytáhne kontakty.
+              </p>
+            </div>
+          </div>
+
+          <!-- Výběr, co extrahovat z textu -->
+          <div v-if="sourceType === 'search' || sourceType === 'text' || (sourceType === 'file' && secondaryUnstructuredText)" class="fade-in" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--glass-border);">
+              <label class="form-label">Co chcete z textu najít a přidat?</label>
+              <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px;">
+                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" v-model="extractOptions.email">
+                    E-mail
+                 </label>
+                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" v-model="extractOptions.phone">
+                    Telefonní číslo
+                 </label>
+                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" v-model="extractOptions.address">
+                    Fyzickou adresu (PSČ a okolí)
+                 </label>
+              </div>
+          </div>
+
+        </div>
+      </aside>
+
+    </div>
+  </div>
+
+  <style>
+    [v-cloak] { display: none; }
+  </style>
+  <script src="app.js"></script>
+</body>
+</html>
