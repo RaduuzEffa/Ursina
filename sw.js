@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ursina-v4';
+const CACHE_NAME = 'ursina-v5';
 const urlsToCache = [
   './',
   './index.html',

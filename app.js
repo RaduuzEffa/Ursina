@@ -1,4 +1,4 @@
-const { createApp, ref, computed, onMounted, nextTick } = Vue;
+const { createApp, ref, computed, onMounted, nextTick, toRaw } = Vue;
 
 const App = {
   setup() {
@@ -242,7 +242,10 @@ const App = {
     };
 
     const runAnalysis = async () => {
-      if (!validationStatus.value.ok) return;
+      if (!validationStatus.value.ok) {
+        alert(validationStatus.value.msg);
+        return;
+      }
 
       isProcessing.value = true;
       progress.value = 0;
@@ -259,14 +262,24 @@ const App = {
         const isUnstructuredSecondary = !isSearch && secondaryUnstructuredText.value.length > 0 && secondaryData.value.length === 0;
         
         let fuse = null;
+        let secondaryMap = new Map();
         let unstructuredTextLower = "";
 
         if (isUnstructuredSecondary) {
           unstructuredTextLower = secondaryUnstructuredText.value.toLowerCase();
         } else if (!isSearch) {
-          // Excel to Excel
+          // Excel to Excel - Build Exact Match Map
+          const rawSecondaryData = toRaw(secondaryData.value);
+          rawSecondaryData.forEach(row => {
+            const keyVal = String(row[secondaryKey.value] || "").toLowerCase().trim();
+            if (keyVal) {
+              secondaryMap.set(keyVal, row);
+            }
+          });
+
+          // Fallback to Fuse.js for fuzzy match
           const fuseOptions = { keys: [secondaryKey.value], threshold: 0.2, distance: 100 };
-          fuse = new Fuse(secondaryData.value, fuseOptions);
+          fuse = new Fuse(rawSecondaryData, fuseOptions);
         }
 
         // Prepare base headers
@@ -342,11 +355,20 @@ const App = {
                    if (ad) { enrichedRow["Doplněná Adresa"] = ad; enrichedRow.__MATCHED__ = true; }
               }
             }
-          } else if (fuse) {
+          } else {
             // STRUCTURED EXCEL TO EXCEL
-            const searchResult = fuse.search(String(searchVal));
-            if (searchResult.length > 0) {
-              const bestMatch = searchResult[0].item;
+            const searchStr = String(searchVal).toLowerCase().trim();
+            let bestMatch = secondaryMap.get(searchStr);
+
+            // Fallback to fuzzy match if exact match not found
+            if (!bestMatch && fuse) {
+              const searchResult = fuse.search(String(searchVal));
+              if (searchResult.length > 0) {
+                bestMatch = searchResult[0].item;
+              }
+            }
+
+            if (bestMatch) {
               enrichedRow.__MATCHED__ = true;
               secondarySelectedExtractCols.value.forEach(col => {
                  enrichedRow["Doplněno: " + col] = bestMatch[col] || "";

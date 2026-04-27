@@ -101,9 +101,9 @@
              {{ validationStatus.msg }}
           </div>
 
-          <button class="btn btn-primary" style="width: 100%; margin-top: 1rem; padding: 14px; font-size: 1.1rem;" @click="runAnalysis" :disabled="isProcessing || !validationStatus.ok">
+          <button class="btn btn-primary" style="width: 100%; margin-top: 1rem; padding: 14px; font-size: 1.1rem;" @click="runAnalysis">
             <span v-if="!isProcessing"><i data-lucide="zap"></i> Spustit analýzu a spárovat</span>
-            <span v-else style="display: flex; align-items: center; gap: 8px;"><div class="spinner"></div> Zpracovávám...</span>
+            <span v-else style="display: flex; align-items: center; justify-content: center; gap: 8px;"><div class="spinner"></div> Zpracovávám...</span>
           </button>
 
           <div v-if="progress > 0" class="progress-container fade-in">
