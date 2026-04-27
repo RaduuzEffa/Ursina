@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ursina-v5';
+const CACHE_NAME = 'ursina-v6';
 const urlsToCache = [
   './',
   './index.html',
@@ -6,6 +6,7 @@ const urlsToCache = [
   './app.js',
   './manifest.json',
   './UrsinaLogo.png',
+  './icon-192.png',
   './icon-512.png',
   './apple-touch-icon.png',
   'https://unpkg.com/vue@3/dist/vue.global.js',
